@@ -240,11 +240,6 @@ Function MineradioUseFirstAvailableInstallDir
   StrCpy $INSTDIR "$PROGRAMFILES\Better-MineRadio"
 FunctionEnd
 
-Function MineradioHasPreferredInstallDrive
-  Push "1"
-  Return
-FunctionEnd
-
 Function MineradioNormalizeInstallDir
   Exch $0
   Push "$0"
