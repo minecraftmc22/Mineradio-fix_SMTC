@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.1.2
+
+- 新增 SMTC（System Media Transport Controls）系统媒体控制集成：Windows 锁屏、音量混合器、任务栏悬停可显示当前歌曲标题、艺术家、专辑封面，并支持系统级播放/暂停/上一首/下一首/进度跳转控制。
+- 新增自定义歌词字体：在「设置 → 歌词 → 字体与字距」中点击「自定义」按钮，可输入任意 CSS 字体名，设置自动保存并同步到桌面歌词。
+- 新增标题模式设置：在「设置 → 高级 → 标题设置」中可选 5 种窗口标题显示模式——歌曲名、歌曲名-歌手、整句歌词、逐词歌词、软件名，所有模式均附加 `-Mineradio` 后缀；逐词歌词模式随高亮进度实时累进显示。
+
 ## v1.1.1
 
 - P0 installer safety fix: installation now defaults to the first available non-C drive from `D:\Mineradio` through `Z:\Mineradio`; it falls back to `C:\Mineradio` only when no D-Z drive exists.

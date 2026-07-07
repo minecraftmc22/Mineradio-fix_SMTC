@@ -2126,6 +2126,10 @@ html.control-glass-svg-ok #visual-guide-btn:hover{
         <button type="button" data-font="humanist" onclick="setLyricFont('humanist')">Humanist</button>
         <button type="button" data-font="mono" onclick="setLyricFont('mono')">等宽</button>
         <button type="button" data-font="display" onclick="setLyricFont('display')">标题</button>
+        <button type="button" data-font="custom" onclick="setLyricFont('custom')">自定义</button>
+      </div>
+      <div id="lyric-custom-font-row" style="display:none;margin:-4px 0 10px">
+        <input id="lyric-custom-font-input" type="text" placeholder="输入字体名，如 'Microsoft YaHei'" style="width:100%;height:30px;border-radius:9px;border:1px solid rgba(255,255,255,.10);background:rgba(0,0,0,.22);color:#fff;padding:0 10px;font-family:inherit;font-size:11.5px;outline:none;box-shadow:inset 0 1px 0 rgba(255,255,255,.06)" oninput="setLyricFontCustom(this.value)">
       </div>
       <div class="fx-slider"><label>字间距</label><input id="fx-lyricspacing" type="range" min="-0.04" max="0.18" step="0.005"><output></output></div>
       <div class="fx-slider"><label>行距</label><input id="fx-lyriclineheight" type="range" min="0.86" max="1.35" step="0.01"><output></output></div>
@@ -2253,6 +2257,14 @@ html.control-glass-svg-ok #visual-guide-btn:hover{
       <div class="fx-slider"><label>溢光强度</label><input id="fx-bloom" type="range" min="0" max="1.6" step="0.01"><output></output></div>
       <div class="fx-slider"><label>离散感</label><input id="fx-scatter" type="range" min="0" max="0.5" step="0.01"><output></output></div>
       <div class="fx-slider"><label>背景压缩</label><input id="fx-bgfade" type="range" min="0" max="1.2" step="0.01"><output></output></div>
+      <div class="fx-section-label">标题设置</div>
+      <div class="fx-seg" id="title-mode-seg">
+        <button data-title-mode="song-name" onclick="setTitleMode('song-name')">歌曲名</button>
+        <button data-title-mode="song-artist" onclick="setTitleMode('song-artist')">歌曲名-歌手</button>
+        <button data-title-mode="full-line" onclick="setTitleMode('full-line')">整句歌词</button>
+        <button data-title-mode="word-by-word" onclick="setTitleMode('word-by-word')">逐词歌词</button>
+        <button data-title-mode="app-name" onclick="setTitleMode('app-name')">软件名</button>
+      </div>
     </div>
   </div>
 
@@ -2908,6 +2920,78 @@ function clearSmtcMetadata() {
   } catch (e) {}
 }
 
+/* --- 标题模式 (Title Mode) --- */
+var TITLE_SUFFIX = ' -Mineradio';
+var titleUpdateThrottle = 0;
+function normalizeTitleMode(value) {
+  return /^(song-name|song-artist|full-line|word-by-word|app-name)$/.test(String(value || '')) ? value : 'song-name';
+}
+function setTitleMode(mode) {
+  fx.titleMode = normalizeTitleMode(mode);
+  updateTitleModeControls();
+  saveLyricLayout();
+  updateWindowTitle();
+  showToast('标题模式已切换');
+}
+function updateTitleModeControls() {
+  var mode = normalizeTitleMode(fx.titleMode);
+  document.querySelectorAll('#title-mode-seg button').forEach(function(btn){
+    btn.classList.toggle('active', btn.dataset.titleMode === mode);
+  });
+}
+function getCurrentWordFromLyric(text, progress) {
+  if (!text) return '';
+  progress = Math.max(0, Math.min(1, progress || 0));
+  var chars = Array.from(text);
+  if (chars.length === 0) return '';
+  var endIdx = Math.ceil(progress * chars.length);
+  if (endIdx > chars.length) endIdx = chars.length;
+  if (endIdx < 1) endIdx = 1;
+  var partial = chars.slice(0, endIdx).join('');
+  return partial.trim();
+}
+function getCurrentSongForTitle() {
+  if (currentIdx >= 0 && playQueue && playQueue[currentIdx]) {
+    return playQueue[currentIdx];
+  }
+  return null;
+}
+function updateWindowTitle() {
+  var mode = normalizeTitleMode(fx.titleMode);
+  var title = '';
+  if (mode === 'app-name') {
+    title = 'Mineradio';
+  } else {
+    var song = getCurrentSongForTitle();
+    if (song) {
+      if (mode === 'song-name') {
+        title = (song.name || '') + TITLE_SUFFIX;
+      } else if (mode === 'song-artist') {
+        var name = song.name || '';
+        var artist = song.artist || '';
+        title = (artist ? name + '-' + artist : name) + TITLE_SUFFIX;
+      } else if (mode === 'full-line') {
+        var line = (stageLyrics && stageLyrics.currentText) || '';
+        title = (line || song.name || '') + TITLE_SUFFIX;
+      } else if (mode === 'word-by-word') {
+        var text = (stageLyrics && stageLyrics.currentText) || '';
+        var progress = (stageLyrics && stageLyrics.current && stageLyrics.current.userData && stageLyrics.current.userData.lastLyricProgress) || 0;
+        var word = getCurrentWordFromLyric(text, progress);
+        title = (word || song.name || '') + TITLE_SUFFIX;
+      }
+    } else {
+      title = 'Mineradio';
+    }
+  }
+  if (title) document.title = title;
+}
+function updateWindowTitleThrottled() {
+  var now = performance.now();
+  if (now - titleUpdateThrottle < 200) return;
+  titleUpdateThrottle = now;
+  updateWindowTitle();
+}
+
 var appPerfMarks = [];
 function markAppPerf(name) {
   try {
@@ -3348,6 +3432,7 @@ var fxDefaults = {
   lyricGlowLinked: true,
   lyricGlowColor: '#008aff',
   lyricFont: 'hei',
+  lyricCustomFont: '',
   lyricLetterSpacing: 0,
   lyricLineHeight: 1.0,
   lyricWeight: 900,
@@ -3398,6 +3483,7 @@ var fxDefaults = {
   performanceQuality: 'high',
   liveBackgroundKeep: false,
   cam: 'off',
+  titleMode: 'song-name',
 };
 var PACKAGED_DEFAULT_USER_FX_ARCHIVE_NAME = '默认测试';
 var PACKAGED_DEFAULT_USER_FX_ARCHIVE_EXPORTED_AT = 1782276031784;
@@ -7708,6 +7794,7 @@ function readSavedLyricLayout() {
       lyricGlowLinked: raw.lyricGlowLinked !== false,
       lyricGlowColor: normalizeHexColor(raw.lyricGlowColor || '#9db8cf'),
       lyricFont: normalizeLyricFontKey(raw.lyricFont),
+      lyricCustomFont: String(raw.lyricCustomFont || '').trim(),
       lyricLetterSpacing: clampRange(Number(raw.lyricLetterSpacing) || 0, -0.04, 0.18),
       lyricLineHeight: clampRange(Number(raw.lyricLineHeight) || 1, 0.86, 1.35),
       lyricWeight: clampRange(Number(raw.lyricWeight) || 900, 500, 900),
@@ -7758,7 +7845,8 @@ function readSavedLyricLayout() {
       shelfOpacity: clampRange(raw.shelfOpacity == null ? fxDefaults.shelfOpacity : Number(raw.shelfOpacity), 0.25, 1),
       shelfBgOpacity: clampRange(raw.shelfBgOpacity == null ? fxDefaults.shelfBgOpacity : Number(raw.shelfBgOpacity), 0.25, 0.98),
       shelfAccentColor: normalizeHexColor(raw.shelfAccentColor || fxDefaults.shelfAccentColor, fxDefaults.shelfAccentColor),
-      cam: /^(off|gesture)$/.test(String(raw.cam || '')) ? raw.cam : fxDefaults.cam
+      cam: /^(off|gesture)$/.test(String(raw.cam || '')) ? raw.cam : fxDefaults.cam,
+      titleMode: /^(song-name|song-artist|full-line|word-by-word|app-name)$/.test(String(raw.titleMode || '')) ? raw.titleMode : fxDefaults.titleMode
     };
   } catch (e) {
     return {};
@@ -7798,6 +7886,7 @@ function saveLyricLayout() {
       lyricGlowLinked: fx.lyricGlowLinked !== false,
       lyricGlowColor: normalizeHexColor(fx.lyricGlowColor || '#9db8cf'),
       lyricFont: normalizeLyricFontKey(fx.lyricFont),
+      lyricCustomFont: String(fx.lyricCustomFont || '').trim(),
       lyricLetterSpacing: clampRange(Number(fx.lyricLetterSpacing) || 0, -0.04, 0.18),
       lyricLineHeight: clampRange(Number(fx.lyricLineHeight) || 1, 0.86, 1.35),
       lyricWeight: clampRange(Number(fx.lyricWeight) || 900, 500, 900),
@@ -7848,7 +7937,8 @@ function saveLyricLayout() {
       shelfOpacity: clampRange(fx.shelfOpacity == null ? fxDefaults.shelfOpacity : Number(fx.shelfOpacity), 0.25, 1),
       shelfBgOpacity: clampRange(fx.shelfBgOpacity == null ? fxDefaults.shelfBgOpacity : Number(fx.shelfBgOpacity), 0.25, 0.98),
       shelfAccentColor: normalizeHexColor(fx.shelfAccentColor || fxDefaults.shelfAccentColor, fxDefaults.shelfAccentColor),
-      cam: /^(off|gesture)$/.test(String(fx.cam || '')) ? fx.cam : fxDefaults.cam
+      cam: /^(off|gesture)$/.test(String(fx.cam || '')) ? fx.cam : fxDefaults.cam,
+      titleMode: /^(song-name|song-artist|full-line|word-by-word|app-name)$/.test(String(fx.titleMode || '')) ? fx.titleMode : fxDefaults.titleMode
     }));
   } catch (e) {}
 }
@@ -7930,7 +8020,7 @@ function rgbToHexColor(r, g, b) {
 }
 function normalizeLyricFontKey(value) {
   value = String(value || 'sans');
-  return /^(sans|hei|song|bold-song|stone-song|kai-song|serif-en|gothic|editorial|humanist|round|mono|display)$/.test(value) ? value : 'sans';
+  return /^(sans|hei|song|bold-song|stone-song|kai-song|serif-en|gothic|editorial|humanist|round|mono|display|custom)$/.test(value) ? value : 'sans';
 }
 function lyricFontStackForKey(key) {
   key = normalizeLyricFontKey(key);
@@ -7946,6 +8036,11 @@ function lyricFontStackForKey(key) {
   if (key === 'round') return '"HarmonyOS Sans SC","Microsoft YaHei UI","PingFang SC","Noto Sans SC",sans-serif';
   if (key === 'mono') return '"JetBrains Mono",Consolas,"Noto Sans SC","Microsoft YaHei",monospace';
   if (key === 'display') return '"Alibaba PuHuiTi","Noto Sans SC","PingFang SC","Microsoft YaHei",sans-serif';
+  if (key === 'custom') {
+    var customName = String((fx && fx.lyricCustomFont) || '').trim();
+    if (!customName) return 'Inter,"Noto Sans SC","PingFang SC","Microsoft YaHei",Arial,sans-serif';
+    return '"' + customName.replace(/"/g, '') + '","Noto Sans SC","PingFang SC","Microsoft YaHei",sans-serif';
+  }
   return 'Inter,"Noto Sans SC","PingFang SC","Microsoft YaHei",Arial,sans-serif';
 }
 function lyricFontWeightValue() {
@@ -9074,6 +9169,9 @@ function updateLyricMeshProgress(mesh, progress) {
   var d = mesh.userData.lyric;
   d.textMat.uniforms.uProgress.value = progress;
   mesh.userData.lastLyricProgress = progress;
+  if (normalizeTitleMode(fx.titleMode) === 'word-by-word' && mesh === stageLyrics.current) {
+    updateWindowTitleThrottled();
+  }
 }
 
 function showStageLine(text, redrawOnly) {
@@ -9092,6 +9190,7 @@ function showStageLine(text, redrawOnly) {
   var mesh = buildLyricMesh(text);
   stageLyrics.group.add(mesh);
   stageLyrics.current = mesh;
+  updateWindowTitleThrottled();
 }
 
 function refreshCurrentLyricStyle() {
@@ -9108,6 +9207,7 @@ function clearStageLyrics() {
   stageLyrics.currentIdx = -1;
   stageLyrics.currentText = '';
   while (stageLyrics.outgoing.length) disposeLyricMesh(stageLyrics.outgoing.pop());
+  updateWindowTitleThrottled();
 }
 
 function updateStageLyrics3D(dt) {
@@ -18568,6 +18668,7 @@ async function playQueueAt(idx, opts) {
     document.getElementById('thumb-wrap').classList.add('visible');
   });
   updateSmtcMetadata(song);
+  updateWindowTitle();
   markPlayPhase('lyric-prep');
   safePlaybackStep('lyric-prep', function(){
     var initialLyricLines = withLyricFallback([]);
@@ -18869,6 +18970,7 @@ function clearQueue() {
   updateCustomLyricControls();
   updateEmptyHomeVisibility({ forceLoad: false });
   clearSmtcMetadata();
+  updateWindowTitle();
 }
 function removeFromQueue(idx) {
   if (idx < 0 || idx >= playQueue.length) return;
@@ -21244,6 +21346,11 @@ function updateLyricFontControls() {
   document.querySelectorAll('#lyric-font-grid button').forEach(function(btn){
     btn.classList.toggle('active', btn.dataset.font === normalizeLyricFontKey(fx.lyricFont));
   });
+  var customRow = document.getElementById('lyric-custom-font-row');
+  var customInput = document.getElementById('lyric-custom-font-input');
+  var isCustom = normalizeLyricFontKey(fx.lyricFont) === 'custom';
+  if (customRow) customRow.style.display = isCustom ? '' : 'none';
+  if (customInput && isCustom) customInput.value = String(fx.lyricCustomFont || '');
 }
 function setLyricFont(key) {
   fx.lyricFont = normalizeLyricFontKey(key);
@@ -21251,7 +21358,14 @@ function setLyricFont(key) {
   refreshCurrentLyricStyle();
   saveLyricLayout();
   pushDesktopLyricsState(true);
-  showToast('歌词字体已切换');
+  showToast(fx.lyricFont === 'custom' ? '已切换到自定义字体' : '歌词字体已切换');
+}
+function setLyricFontCustom(value) {
+  fx.lyricCustomFont = String(value || '').trim();
+  fx.lyricFont = 'custom';
+  refreshCurrentLyricStyle();
+  saveLyricLayout();
+  pushDesktopLyricsState(true);
 }
 function setLyricGlowLinked(linked, openPicker) {
   fx.lyricGlowLinked = linked !== false;
@@ -21904,6 +22018,7 @@ function relabelFxPanelControls() {
   setFxSectionBefore('fx-shelfsize', '歌单架参数');
   setFxSectionBefore('cam-seg', '摄像头交互');
   setFxSectionBefore('fx-point', '粒子高级参数');
+  setFxSectionBefore('title-mode-seg', '标题设置');
   setFxSliderLabel('fx-intensity', '律动强度');
   setFxSliderLabel('fx-depth', '画面景深');
   setFxSliderLabel('fx-coverres', '封面清晰度');
@@ -26252,6 +26367,8 @@ document.addEventListener('DOMContentLoaded', function(){
   if (!s) return;
   markAppPerf('dom-content-loaded');
   initSmtc();
+  updateTitleModeControls();
+  updateWindowTitle();
   armSplashSoundFallback();
   prewarmHomeWallpaperPreview();
   function requestSplashEnter() {
