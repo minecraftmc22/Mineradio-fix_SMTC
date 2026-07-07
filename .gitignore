@@ -45,3 +45,6 @@ tmp/
 *.png.tmp
 verification/
 screenshots/
+
+# AI assistant workspace
+.workbuddy/

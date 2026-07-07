@@ -2775,6 +2775,139 @@ var weatherRadioStartBusy = false;
 var activeRadioContext = null;
 var listenStatsState = loadListenStatsState();
 var listenSession = null;
+
+// ============================================================
+//  SMTC (System Media Transport Controls) Integration
+//  Uses Chromium navigator.mediaSession API which automatically
+//  integrates with Windows SMTC, macOS Now Playing, and Linux MPRIS.
+// ============================================================
+var smtcInitialized = false;
+var smtcPositionThrottle = 0;
+
+function initSmtc() {
+  if (smtcInitialized || !('mediaSession' in navigator)) return;
+  try {
+    var ms = navigator.mediaSession;
+    ms.setActionHandler('play', function() {
+      if (audio && (audio.paused || audio.ended) && audio.src) {
+        attemptAudioPlay({ manual: true }).catch(function(e) {
+          console.warn('[SMTC] play handler failed:', e);
+        });
+      } else if ((!audio || !audio.src) && playQueue.length && currentIdx >= 0) {
+        playQueueAt(currentIdx, { manual: true }).catch(function(){});
+      }
+    });
+    ms.setActionHandler('pause', function() {
+      if (audio && !audio.paused) {
+        fadeOutAndPauseAudio().then(function() {
+          playing = false;
+          setPlayIcon(false);
+          safePlaybackStep('smtc-pause', function(){ syncPlaybackStateFromAudioEvent('manual-pause'); });
+          forcePlaybackControlsInteractive();
+        });
+      }
+    });
+    ms.setActionHandler('previoustrack', function() { prevTrack(); });
+    ms.setActionHandler('nexttrack', function() { nextTrack(); });
+    ms.setActionHandler('seekto', function(details) {
+      if (audio && details && details.seekTime != null) {
+        var duration = getPlaybackDurationSeconds();
+        var target = Math.max(0, Math.min(details.seekTime, duration || details.seekTime));
+        try { audio.currentTime = target; } catch(e) {}
+        if (typeof syncBeatMapPlaybackCursor === 'function') syncBeatMapPlaybackCursor(target);
+        updatePlaybackProgressUi();
+      }
+    });
+    ms.setActionHandler('seekbackward', function(details) {
+      if (audio) {
+        var offset = (details && details.seekOffset) || 10;
+        audio.currentTime = Math.max(0, (audio.currentTime || 0) - offset);
+        updatePlaybackProgressUi();
+      }
+    });
+    ms.setActionHandler('seekforward', function(details) {
+      if (audio) {
+        var offset = (details && details.seekOffset) || 10;
+        var duration = getPlaybackDurationSeconds();
+        audio.currentTime = Math.min(duration || (audio.currentTime + offset), (audio.currentTime || 0) + offset);
+        updatePlaybackProgressUi();
+      }
+    });
+    ms.setActionHandler('stop', function() {
+      if (audio) {
+        try { audio.pause(); } catch(e) {}
+        audio.currentTime = 0;
+      }
+      playing = false;
+      setPlayIcon(false);
+    });
+    smtcInitialized = true;
+    console.log('[SMTC] System Media Transport Controls initialized');
+  } catch (e) {
+    console.warn('[SMTC] init failed:', e);
+  }
+}
+
+function updateSmtcMetadata(song) {
+  if (!smtcInitialized || !song) return;
+  try {
+    var artwork = [];
+    var customCover = getCustomCoverForSong(song);
+    var coverUrl = customCover || (song.cover ? coverUrlWithSize(song.cover, 600) : '');
+    if (coverUrl) {
+      var artType = coverUrl.indexOf('data:') === 0 ? 'image/png' : 'image/jpeg';
+      artwork = [
+        { src: coverUrl, sizes: '600x600', type: artType },
+        { src: coverUrl, sizes: '300x300', type: artType },
+        { src: coverUrl, sizes: '96x96', type: artType },
+      ];
+    }
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: song.name || '',
+      artist: song.artist || '',
+      album: song.album || (song.type === 'podcast' ? (song.radioName || 'Podcast') : ''),
+      artwork: artwork,
+    });
+    updateSmtcPositionState();
+  } catch (e) {
+    console.warn('[SMTC] metadata update failed:', e);
+  }
+}
+
+function updateSmtcPlaybackState() {
+  if (!smtcInitialized) return;
+  try {
+    var isPlaying = !!(audio && audio.src && !audio.paused && !audio.ended);
+    navigator.mediaSession.playbackState = isPlaying ? 'playing' : 'paused';
+  } catch (e) {}
+}
+
+function updateSmtcPositionState() {
+  if (!smtcInitialized || !audio) return;
+  try {
+    var now = performance.now();
+    if (now - smtcPositionThrottle < 200) return;
+    smtcPositionThrottle = now;
+    var duration = getPlaybackDurationSeconds();
+    var position = getPlaybackCurrentSeconds();
+    if (duration > 0 && position >= 0) {
+      navigator.mediaSession.setPositionState({
+        duration: duration,
+        position: Math.min(position, duration),
+        playbackRate: audio.playbackRate || 1,
+      });
+    }
+  } catch (e) {}
+}
+
+function clearSmtcMetadata() {
+  if (!smtcInitialized) return;
+  try {
+    navigator.mediaSession.metadata = null;
+    navigator.mediaSession.playbackState = 'none';
+  } catch (e) {}
+}
+
 var appPerfMarks = [];
 function markAppPerf(name) {
   try {
@@ -18345,6 +18478,7 @@ function syncPlaybackStateFromAudioEvent(reason) {
   if (!isPlaying) hideLoading();
   if (reason === 'play' || reason === 'playing') switchPlaybackVisualToEmily();
   forcePlaybackControlsInteractive();
+  updateSmtcPlaybackState();
 }
 
 function isPlaybackRecursionError(err) {
@@ -18433,6 +18567,7 @@ async function playQueueAt(idx, opts) {
     updateControlTrackInfo(song);
     document.getElementById('thumb-wrap').classList.add('visible');
   });
+  updateSmtcMetadata(song);
   markPlayPhase('lyric-prep');
   safePlaybackStep('lyric-prep', function(){
     var initialLyricLines = withLyricFallback([]);
@@ -18733,6 +18868,7 @@ function clearQueue() {
   updateCustomCoverButton();
   updateCustomLyricControls();
   updateEmptyHomeVisibility({ forceLoad: false });
+  clearSmtcMetadata();
 }
 function removeFromQueue(idx) {
   if (idx < 0 || idx >= playQueue.length) return;
@@ -19915,6 +20051,7 @@ function updatePlaybackProgressUi() {
   setProgressVisual(durationSec > 0 ? (currentSec / durationSec * 100) : 0);
   var timeDisplay = document.getElementById('time-display');
   if (timeDisplay) timeDisplay.textContent = formatProgramTime(currentSec) + ' / ' + (durationSec > 0 ? formatProgramTime(durationSec) : '0:00');
+  updateSmtcPositionState();
 }
 function bindPlaybackProgressEvents(audioEl) {
   if (!audioEl || audioEl._mineradioProgressBound) return;
@@ -26114,6 +26251,7 @@ document.addEventListener('DOMContentLoaded', function(){
   var s = document.getElementById('splash');
   if (!s) return;
   markAppPerf('dom-content-loaded');
+  initSmtc();
   armSplashSoundFallback();
   prewarmHomeWallpaperPreview();
   function requestSplashEnter() {
