@@ -50,7 +50,7 @@ Better-Mineradio 是一款 Windows 桌面沉浸式音乐播放器，把天气电
 | 本 Fork Release | [Minecraftmc22/Mineradio-fix_SMTC Releases](https://github.com/Minecraftmc22/Mineradio-fix_SMTC/releases) |
 | 原版 Release | [XxHuberrr/Mineradio Releases](https://github.com/XxHuberrr/Mineradio/releases) |
 
-安装时只需要下载并运行 `Better-Mineradio-1.1.2-Setup.exe`。不要下载 `Source code`、`.blockmap`、`latest.yml`，也不要把 `win-unpacked` 当成正式安装包。
+安装时只需要下载并运行 `Better-Mineradio-1.1.3-Setup.exe`。不要下载 `Source code`、`.blockmap`、`latest.yml`，也不要把 `win-unpacked` 当成正式安装包。
 
 ## 下载或安装被拦截怎么办
 
@@ -62,9 +62,9 @@ Better-Mineradio 是一款 Windows 桌面沉浸式音乐播放器，把天气电
 
 ## 当前版本
 
-当前版本：`1.1.1`
+当前版本：`1.1.3`
 
-状态：1.1.1 + SMTC 集成 + 自定义歌词字体 + 标题模式设置。
+状态：1.1.3 + SMTC 集成 + SMTC 设置 + 自定义歌词字体 + 标题模式设置。
 
 ## 核心特性
 
@@ -89,7 +89,7 @@ Better-Mineradio 是一款 Windows 桌面沉浸式音乐播放器，把天气电
 
 Windows 用户可以在 GitHub Releases 中下载安装包。
 
-正式分发以 `Better-Mineradio-1.1.2-Setup.exe` 为准，不建议直接下载 `win-unpacked` 目录作为正式分发包。安装包会创建桌面快捷方式；直接运行打包版 `Better-Mineradio.exe` 时，应用也会在首次启动时补创建桌面快捷方式。
+正式分发以 `Better-Mineradio-1.1.3-Setup.exe` 为准，不建议直接下载 `win-unpacked` 目录作为正式分发包。安装包会创建桌面快捷方式；直接运行打包版 `Better-Mineradio.exe` 时，应用也会在首次启动时补创建桌面快捷方式。
 
 ## 开发运行
 

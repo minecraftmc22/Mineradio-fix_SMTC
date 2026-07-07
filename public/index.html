@@ -2265,6 +2265,16 @@ html.control-glass-svg-ok #visual-guide-btn:hover{
         <button data-title-mode="word-by-word" onclick="setTitleMode('word-by-word')">逐词歌词</button>
         <button data-title-mode="app-name" onclick="setTitleMode('app-name')">软件名</button>
       </div>
+      <div class="fx-section-label">SMTC 设置</div>
+      <div class="fx-toggle-grid">
+        <div class="fx-toggle" id="t-smtcEnabled" onclick="toggleSmtcEnabled()" title="开启后 Windows 锁屏、音量混合器、任务栏可显示歌曲信息和控制"><span>SMTC 系统媒体控制</span><span class="dot"></span></div>
+      </div>
+      <div class="fx-section-label">SMTC 显示模式</div>
+      <div class="fx-seg" id="smtc-display-seg">
+        <button data-smtc-display="normal" onclick="setSmtcDisplayMode('normal')">正常</button>
+        <button data-smtc-display="word-by-word" onclick="setSmtcDisplayMode('word-by-word')">逐词歌词</button>
+        <button data-smtc-display="full-line" onclick="setSmtcDisplayMode('full-line')">整句歌词</button>
+      </div>
     </div>
   </div>
 
@@ -2795,9 +2805,50 @@ var listenSession = null;
 // ============================================================
 var smtcInitialized = false;
 var smtcPositionThrottle = 0;
+var smtcMetadataThrottle = 0;
+
+function normalizeSmtcDisplayMode(value) {
+  return /^(normal|word-by-word|full-line)$/.test(String(value || '')) ? value : 'word-by-word';
+}
+
+function toggleSmtcEnabled() {
+  fx.smtcEnabled = fx.smtcEnabled !== false ? false : true;
+  var toggle = document.getElementById('t-smtcEnabled');
+  if (toggle) toggle.classList.toggle('on', fx.smtcEnabled);
+  saveLyricLayout();
+  if (fx.smtcEnabled) {
+    if (!smtcInitialized) initSmtc();
+    var song = getCurrentSongForTitle();
+    if (song) updateSmtcMetadata(song);
+    updateSmtcPlaybackState();
+    showToast('SMTC 已开启');
+  } else {
+    clearSmtcMetadata();
+    showToast('SMTC 已关闭');
+  }
+}
+
+function setSmtcDisplayMode(mode) {
+  fx.smtcDisplayMode = normalizeSmtcDisplayMode(mode);
+  updateSmtcDisplayControls();
+  saveLyricLayout();
+  var song = getCurrentSongForTitle();
+  if (song && fx.smtcEnabled !== false) updateSmtcMetadata(song);
+  showToast('SMTC 显示模式已切换');
+}
+
+function updateSmtcDisplayControls() {
+  var mode = normalizeSmtcDisplayMode(fx.smtcDisplayMode);
+  document.querySelectorAll('#smtc-display-seg button').forEach(function(btn){
+    btn.classList.toggle('active', btn.dataset.smtcDisplay === mode);
+  });
+  var toggle = document.getElementById('t-smtcEnabled');
+  if (toggle) toggle.classList.toggle('on', fx.smtcEnabled !== false);
+}
 
 function initSmtc() {
   if (smtcInitialized || !('mediaSession' in navigator)) return;
+  if (fx.smtcEnabled === false) return;
   try {
     var ms = navigator.mediaSession;
     ms.setActionHandler('play', function() {
@@ -2862,6 +2913,7 @@ function initSmtc() {
 
 function updateSmtcMetadata(song) {
   if (!smtcInitialized || !song) return;
+  if (fx.smtcEnabled === false) return;
   try {
     var artwork = [];
     var customCover = getCustomCoverForSong(song);
@@ -2874,9 +2926,27 @@ function updateSmtcMetadata(song) {
         { src: coverUrl, sizes: '96x96', type: artType },
       ];
     }
+    var mode = normalizeSmtcDisplayMode(fx.smtcDisplayMode);
+    var smtcTitle = song.name || '';
+    var smtcArtist = song.artist || '';
+    if (mode === 'word-by-word') {
+      var text = (stageLyrics && stageLyrics.currentText) || '';
+      var progress = (stageLyrics && stageLyrics.current && stageLyrics.current.userData && stageLyrics.current.userData.lastLyricProgress) || 0;
+      var word = getCurrentWordFromLyric(text, progress);
+      smtcTitle = word || song.name || '';
+      var name = song.name || '';
+      var artist = song.artist || '';
+      smtcArtist = artist ? name + '-' + artist : name;
+    } else if (mode === 'full-line') {
+      var line = (stageLyrics && stageLyrics.currentText) || '';
+      smtcTitle = line || song.name || '';
+      var name2 = song.name || '';
+      var artist2 = song.artist || '';
+      smtcArtist = artist2 ? name2 + '-' + artist2 : name2;
+    }
     navigator.mediaSession.metadata = new MediaMetadata({
-      title: song.name || '',
-      artist: song.artist || '',
+      title: smtcTitle,
+      artist: smtcArtist,
       album: song.album || (song.type === 'podcast' ? (song.radioName || 'Podcast') : ''),
       artwork: artwork,
     });
@@ -2886,8 +2956,17 @@ function updateSmtcMetadata(song) {
   }
 }
 
+function updateSmtcMetadataThrottled() {
+  if (!smtcInitialized || fx.smtcEnabled === false) return;
+  var now = performance.now();
+  if (now - smtcMetadataThrottle < 200) return;
+  smtcMetadataThrottle = now;
+  var song = getCurrentSongForTitle();
+  if (song) updateSmtcMetadata(song);
+}
+
 function updateSmtcPlaybackState() {
-  if (!smtcInitialized) return;
+  if (!smtcInitialized || fx.smtcEnabled === false) return;
   try {
     var isPlaying = !!(audio && audio.src && !audio.paused && !audio.ended);
     navigator.mediaSession.playbackState = isPlaying ? 'playing' : 'paused';
@@ -3484,6 +3563,8 @@ var fxDefaults = {
   liveBackgroundKeep: false,
   cam: 'off',
   titleMode: 'song-name',
+  smtcEnabled: true,
+  smtcDisplayMode: 'word-by-word',
 };
 var PACKAGED_DEFAULT_USER_FX_ARCHIVE_NAME = '默认测试';
 var PACKAGED_DEFAULT_USER_FX_ARCHIVE_EXPORTED_AT = 1782276031784;
@@ -7846,7 +7927,9 @@ function readSavedLyricLayout() {
       shelfBgOpacity: clampRange(raw.shelfBgOpacity == null ? fxDefaults.shelfBgOpacity : Number(raw.shelfBgOpacity), 0.25, 0.98),
       shelfAccentColor: normalizeHexColor(raw.shelfAccentColor || fxDefaults.shelfAccentColor, fxDefaults.shelfAccentColor),
       cam: /^(off|gesture)$/.test(String(raw.cam || '')) ? raw.cam : fxDefaults.cam,
-      titleMode: /^(song-name|song-artist|full-line|word-by-word|app-name)$/.test(String(raw.titleMode || '')) ? raw.titleMode : fxDefaults.titleMode
+      titleMode: /^(song-name|song-artist|full-line|word-by-word|app-name)$/.test(String(raw.titleMode || '')) ? raw.titleMode : fxDefaults.titleMode,
+      smtcEnabled: raw.smtcEnabled !== false,
+      smtcDisplayMode: /^(normal|word-by-word|full-line)$/.test(String(raw.smtcDisplayMode || '')) ? raw.smtcDisplayMode : fxDefaults.smtcDisplayMode
     };
   } catch (e) {
     return {};
@@ -7938,7 +8021,9 @@ function saveLyricLayout() {
       shelfBgOpacity: clampRange(fx.shelfBgOpacity == null ? fxDefaults.shelfBgOpacity : Number(fx.shelfBgOpacity), 0.25, 0.98),
       shelfAccentColor: normalizeHexColor(fx.shelfAccentColor || fxDefaults.shelfAccentColor, fxDefaults.shelfAccentColor),
       cam: /^(off|gesture)$/.test(String(fx.cam || '')) ? fx.cam : fxDefaults.cam,
-      titleMode: /^(song-name|song-artist|full-line|word-by-word|app-name)$/.test(String(fx.titleMode || '')) ? fx.titleMode : fxDefaults.titleMode
+      titleMode: /^(song-name|song-artist|full-line|word-by-word|app-name)$/.test(String(fx.titleMode || '')) ? fx.titleMode : fxDefaults.titleMode,
+      smtcEnabled: fx.smtcEnabled !== false,
+      smtcDisplayMode: /^(normal|word-by-word|full-line)$/.test(String(fx.smtcDisplayMode || '')) ? fx.smtcDisplayMode : fxDefaults.smtcDisplayMode
     }));
   } catch (e) {}
 }
@@ -9172,6 +9257,9 @@ function updateLyricMeshProgress(mesh, progress) {
   if (normalizeTitleMode(fx.titleMode) === 'word-by-word' && mesh === stageLyrics.current) {
     updateWindowTitleThrottled();
   }
+  if (normalizeSmtcDisplayMode(fx.smtcDisplayMode) === 'word-by-word' && mesh === stageLyrics.current) {
+    updateSmtcMetadataThrottled();
+  }
 }
 
 function showStageLine(text, redrawOnly) {
@@ -9191,6 +9279,7 @@ function showStageLine(text, redrawOnly) {
   stageLyrics.group.add(mesh);
   stageLyrics.current = mesh;
   updateWindowTitleThrottled();
+  updateSmtcMetadataThrottled();
 }
 
 function refreshCurrentLyricStyle() {
@@ -9208,6 +9297,7 @@ function clearStageLyrics() {
   stageLyrics.currentText = '';
   while (stageLyrics.outgoing.length) disposeLyricMesh(stageLyrics.outgoing.pop());
   updateWindowTitleThrottled();
+  updateSmtcMetadataThrottled();
 }
 
 function updateStageLyrics3D(dt) {
@@ -20461,7 +20551,10 @@ function normalizeFxArchiveSnapshot(raw) {
     shelfOpacity: archiveNumber(raw, 'shelfOpacity', fxDefaults.shelfOpacity, 0.25, 1),
     shelfBgOpacity: archiveNumber(raw, 'shelfBgOpacity', fxDefaults.shelfBgOpacity, 0.25, 0.98),
     shelfAccentColor: normalizeHexColor(raw.shelfAccentColor || fxDefaults.shelfAccentColor, fxDefaults.shelfAccentColor),
-    cam: archiveMode(raw, 'cam', /^(off|gesture)$/, fxDefaults.cam)
+    cam: archiveMode(raw, 'cam', /^(off|gesture)$/, fxDefaults.cam),
+    titleMode: archiveMode(raw, 'titleMode', /^(song-name|song-artist|full-line|word-by-word|app-name)$/, fxDefaults.titleMode),
+    smtcEnabled: raw.smtcEnabled !== false,
+    smtcDisplayMode: archiveMode(raw, 'smtcDisplayMode', /^(normal|word-by-word|full-line)$/, fxDefaults.smtcDisplayMode)
   };
 }
 function readUserFxArchives() {
@@ -22019,6 +22112,7 @@ function relabelFxPanelControls() {
   setFxSectionBefore('cam-seg', '摄像头交互');
   setFxSectionBefore('fx-point', '粒子高级参数');
   setFxSectionBefore('title-mode-seg', '标题设置');
+  setFxSectionBefore('smtc-display-seg', 'SMTC 显示模式');
   setFxSliderLabel('fx-intensity', '律动强度');
   setFxSliderLabel('fx-depth', '画面景深');
   setFxSliderLabel('fx-coverres', '封面清晰度');
@@ -22705,6 +22799,8 @@ function resetFx() {
   });
   applyCoverParticleResolution(fx.coverResolution, { reload: true });
   updateFxInputs();
+  updateTitleModeControls();
+  updateSmtcDisplayControls();
   applyDesktopLyricsState(true);
   applyWallpaperModeState(true);
   updateRenderPowerClasses();
@@ -26368,6 +26464,7 @@ document.addEventListener('DOMContentLoaded', function(){
   markAppPerf('dom-content-loaded');
   initSmtc();
   updateTitleModeControls();
+  updateSmtcDisplayControls();
   updateWindowTitle();
   armSplashSoundFallback();
   prewarmHomeWallpaperPreview();

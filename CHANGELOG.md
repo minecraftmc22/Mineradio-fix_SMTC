@@ -1,11 +1,17 @@
 # Changelog
 
+## v1.1.3
+
+- 修复 NSIS 安装器构建失败：移除未引用的遗留函数 `MineradioHasPreferredInstallDrive`，消除 NSIS warning 6010 导致的构建中断。
+- 修复安装路径校验错误：`\Better-MineRadio` 实际为 17 个字符，修正路径尾串截取长度和长度判断阈值（16 → 17），解决安装时始终提示路径不符合要求的问题。
+
 ## v1.1.2
 
 - 项目更名为 **Better-Mineradio**：软件名、安装包名、可执行文件名、窗口标题、快捷方式名称、appId、User-Agent 等全部同步更新；内部 IPC 通道名保持不变以确保升级兼容。
 - NSIS 安装器重构：默认安装路径改为 `C:\Program Files\Better-MineRadio`，移除旧版 D-Z 盘优先逻辑；改为 perMachine 全局安装，支持用户自定义安装路径。
 - GitHub 仓库迁移至 `Minecraftmc22/Mineradio-fix_SMTC`，更新检查与 Release 发布指向新仓库。
 - 新增 SMTC（System Media Transport Controls）系统媒体控制集成：Windows 锁屏、音量混合器、任务栏悬停可显示当前歌曲标题、艺术家、专辑封面，并支持系统级播放/暂停/上一首/下一首/进度跳转控制。
+- 新增 SMTC 设置：在「设置 → 高级 → SMTC 设置」中可开启/关闭系统媒体控制；显示模式可选正常、逐词歌词（默认，歌曲名显示逐词进度，歌手显示歌曲名-歌手）、整句歌词。
 - 新增自定义歌词字体：在「设置 → 歌词 → 字体与字距」中点击「自定义」按钮，可输入任意 CSS 字体名，设置自动保存并同步到桌面歌词。
 - 新增标题模式设置：在「设置 → 高级 → 标题设置」中可选 5 种窗口标题显示模式——歌曲名、歌曲名-歌手、整句歌词、逐词歌词、软件名，所有模式均附加 `-Better-Mineradio` 后缀；逐词歌词模式随高亮进度实时累进显示。
 - 更新 README：标注 Fork 关系（fork 自 XxHuberrr/Mineradio），补充 SMTC、自定义字体、标题模式等功能说明与下载链接。
