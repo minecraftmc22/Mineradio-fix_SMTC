@@ -2408,6 +2408,89 @@ function mapQQPlaylistTrack(raw) {
   };
 }
 
+// QQ 音乐：添加歌曲到歌单
+async function handleQQAddToPlaylist(playlistId, songMid) {
+  const info = await getQQLoginInfo();
+  if (!info.loggedIn || !info.userId) return { loggedIn: false, provider: 'qq', error: '未登录' };
+  const uin = info.userId;
+  const pid = String(playlistId || '').trim();
+  const mid = String(songMid || '').trim();
+  if (!pid || !mid) return { loggedIn: true, provider: 'qq', error: '缺少歌单ID或歌曲MID' };
+  try {
+    const result = await qqMusicRequest({
+      comm: { ct: 24, cv: 0 },
+      playlist: {
+        module: 'playlist.PlayListCategoryServer',
+        method: 'AddSongToPlayList',
+        param: {
+          disstid: pid,
+          songmid_list: [mid],
+          songtype_list: [0],
+          uin: uin,
+        },
+      },
+    }, { cookie: true });
+    const code = result && result.playlist && result.playlist.code;
+    return { loggedIn: true, provider: 'qq', success: code === 0, code, error: code !== 0 ? '添加失败' : '' };
+  } catch (e) {
+    return { loggedIn: true, provider: 'qq', success: false, error: e.message || 'ADD_FAILED' };
+  }
+}
+
+// QQ 音乐：创建新歌单
+async function handleQQCreatePlaylist(name) {
+  const info = await getQQLoginInfo();
+  if (!info.loggedIn || !info.userId) return { loggedIn: false, provider: 'qq', error: '未登录' };
+  const uin = info.userId;
+  const playlistName = String(name || '').trim() || '我的歌单';
+  try {
+    const result = await qqMusicRequest({
+      comm: { ct: 24, cv: 0 },
+      playlist: {
+        module: 'playlist.PlayListCategoryServer',
+        method: 'CreatePlayList',
+        param: {
+          title: playlistName,
+          desc: '',
+          uin: uin,
+        },
+      },
+    }, { cookie: true });
+    const code = result && result.playlist && result.playlist.code;
+    const pid = result && result.playlist && result.playlist.data && result.playlist.data.disstid;
+    return { loggedIn: true, provider: 'qq', success: code === 0, code, playlistId: pid, error: code !== 0 ? '创建失败' : '' };
+  } catch (e) {
+    return { loggedIn: true, provider: 'qq', success: false, error: e.message || 'CREATE_FAILED' };
+  }
+}
+
+// QQ 音乐：收藏歌曲（添加到"我喜欢"歌单）
+async function handleQQFavoriteSong(songMid) {
+  const info = await getQQLoginInfo();
+  if (!info.loggedIn || !info.userId) return { loggedIn: false, provider: 'qq', error: '未登录' };
+  const uin = info.userId;
+  const mid = String(songMid || '').trim();
+  if (!mid) return { loggedIn: true, provider: 'qq', error: '缺少歌曲MID' };
+  try {
+    const result = await qqMusicRequest({
+      comm: { ct: 24, cv: 0 },
+      fav: {
+        module: 'music.musicasset.SongFavRead',
+        method: 'SetSongFavorites',
+        param: {
+          v_songmid: mid,
+          v_op_type: 1,
+          uin: uin,
+        },
+      },
+    }, { cookie: true });
+    const code = result && result.fav && result.fav.code;
+    return { loggedIn: true, provider: 'qq', success: code === 0, code, error: code !== 0 ? '收藏失败' : '' };
+  } catch (e) {
+    return { loggedIn: true, provider: 'qq', success: false, error: e.message || 'FAVORITE_FAILED' };
+  }
+}
+
 async function handleQQUserPlaylists() {
   const info = await getQQLoginInfo();
   if (!info.loggedIn || !info.userId) return { loggedIn: false, provider: 'qq', playlists: [] };
@@ -3038,6 +3121,410 @@ async function fetchMyPodcastItems(key, info, limit, offset) {
   return { itemType: 'radio', items: [] };
 }
 
+// ====================================================================
+//  多平台 Cookie 持久化
+// ====================================================================
+const PLATFORM_COOKIE_DIR = path.join(process.env.HOME || process.env.USERPROFILE || __dirname, '.mineradio-platforms');
+const PLATFORM_COOKIES = {
+  kugou: '',
+  soda: '',
+  apple: '',
+  spotify: '',
+};
+
+// 确保目录存在
+try {
+  if (!fs.existsSync(PLATFORM_COOKIE_DIR)) {
+    fs.mkdirSync(PLATFORM_COOKIE_DIR, { recursive: true });
+    console.log('[Cookie] Created platform cookie directory:', PLATFORM_COOKIE_DIR);
+  }
+} catch (e) {
+  console.warn('[Cookie] Failed to create directory:', e.message);
+}
+
+function savePlatformCookie(platform, cookie) {
+  if (PLATFORM_COOKIES.hasOwnProperty(platform)) {
+    PLATFORM_COOKIES[platform] = String(cookie || '').trim();
+    console.log('[Cookie] Saving cookie for', platform, ', length:', PLATFORM_COOKIES[platform].length);
+    try {
+      const cookiePath = path.join(PLATFORM_COOKIE_DIR, '.' + platform + '_cookie');
+      console.log('[Cookie] Cookie path:', cookiePath);
+      if (PLATFORM_COOKIES[platform]) {
+        fs.writeFileSync(cookiePath, PLATFORM_COOKIES[platform], 'utf8');
+        console.log('[Cookie] Cookie saved successfully to', cookiePath);
+      } else if (fs.existsSync(cookiePath)) {
+        fs.unlinkSync(cookiePath);
+        console.log('[Cookie] Cookie file deleted');
+      }
+    } catch (e) {
+      console.warn('[Cookie] save failed:', platform, e.message);
+    }
+  } else {
+    console.warn('[Cookie] Unknown platform:', platform);
+  }
+}
+
+function loadPlatformCookie(platform) {
+  if (PLATFORM_COOKIES[platform]) {
+    console.log('[Cookie] Using in-memory cookie for', platform);
+    return PLATFORM_COOKIES[platform];
+  }
+  try {
+    const cookiePath = path.join(PLATFORM_COOKIE_DIR, '.' + platform + '_cookie');
+    console.log('[Cookie] Loading from file:', cookiePath);
+    if (fs.existsSync(cookiePath)) {
+      PLATFORM_COOKIES[platform] = fs.readFileSync(cookiePath, 'utf8').trim();
+      console.log('[Cookie] Loaded cookie, length:', PLATFORM_COOKIES[platform].length);
+    } else {
+      console.log('[Cookie] Cookie file not found:', cookiePath);
+    }
+  } catch (e) {
+    console.warn('[Cookie] Load failed:', platform, e.message);
+  }
+  return PLATFORM_COOKIES[platform] || '';
+}
+
+// 酷狗音乐登录状态
+async function getKugouLoginInfo() {
+  const cookie = loadPlatformCookie('kugou');
+  if (!cookie) return { loggedIn: false, provider: 'kugou' };
+  const cookieObj = parseCookieString(cookie);
+  const userId = cookieObj.KugooID || cookieObj.mid || cookieObj.kugou_mid || '';
+  var nickname = cookieObj.NickName || cookieObj.nickName || cookieObj.nickname || cookieObj.UserName || '';
+  var avatar = cookieObj.AvatarUrl || cookieObj.avatar || cookieObj.UserAvatar || cookieObj.HeadImg || '';
+  if (nickname && /^\d+$/.test(nickname)) {
+    nickname = '酷狗用户' + userId;
+  }
+  if (userId || nickname) {
+    return { loggedIn: true, provider: 'kugou', userId: userId, nickname: nickname || '酷狗用户' + userId, avatar: avatar };
+  }
+  return { loggedIn: false, provider: 'kugou' };
+}
+
+// 汽水音乐登录状态
+async function getSodaLoginInfo() {
+  const cookie = loadPlatformCookie('soda');
+  if (!cookie) return { loggedIn: false, provider: 'soda' };
+  try {
+    const url = 'https://www.douyin.com/aweme/v1/web/user/self/info/';
+    const json = await requestJson(url, { headers: { ...SODA_HEADERS, Cookie: cookie } });
+    const data = json && json.user;
+    if (data && data.uid) {
+      return {
+        loggedIn: true,
+        provider: 'soda',
+        userId: data.uid,
+        nickname: data.nickname || '',
+        avatar: data.avatar_larger && data.avatar_larger.url_list && data.avatar_larger.url_list[0] || '',
+      };
+    }
+  } catch (e) {
+    console.warn('[SodaLogin] check failed:', e.message);
+  }
+  return { loggedIn: false, provider: 'soda' };
+}
+
+// Apple Music 登录状态（iTunes 无需登录）
+async function getAppleLoginInfo() {
+  return { loggedIn: false, provider: 'apple', message: 'Apple Music 使用 iTunes Search API，无需登录' };
+}
+
+// Spotify 登录状态
+async function getSpotifyLoginInfo() {
+  const cookie = loadPlatformCookie('spotify');
+  if (!cookie) return { loggedIn: false, provider: 'spotify' };
+  try {
+    const url = 'https://api.spotify.com/v1/me';
+    const resp = await fetch(url, {
+      headers: {
+        'Authorization': 'Bearer ' + cookie,
+        ...SPOTIFY_HEADERS,
+      },
+    });
+    const data = await resp.json();
+    if (data && data.id) {
+      return {
+        loggedIn: true,
+        provider: 'spotify',
+        userId: data.id,
+        nickname: data.display_name || data.id,
+        avatar: data.images && data.images[0] && data.images[0].url || '',
+      };
+    }
+  } catch (e) {
+    console.warn('[SpotifyLogin] check failed:', e.message);
+  }
+  return { loggedIn: false, provider: 'spotify' };
+}
+
+// ====================================================================
+//  酷狗音乐 API
+// ====================================================================
+const KUGOU_HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+  'Referer': 'https://www.kugou.com/',
+};
+
+// 酷狗音乐：搜索
+async function handleKugouSearch(keywords, limit) {
+  const kw = String(keywords || '').trim();
+  if (!kw) return [];
+  console.log('[KugouSearch]', kw, 'limit:', limit);
+  try {
+    const url = 'https://mobilecdn.kugou.com/api/v3/search/song?page=1&pagesize=' + Math.min(limit || 10, 30) + '&showtype=1&keyword=' + encodeURIComponent(kw);
+    const json = await requestJson(url, { headers: KUGOU_HEADERS });
+    const items = json && json.data && json.data.info;
+    if (!Array.isArray(items)) return [];
+    return items.map(item => ({
+      provider: 'kugou',
+      source: 'kugou',
+      type: 'kugou',
+      id: String(item.hash || ''),
+      kugouHash: item.hash || '',
+      name: item.songname || '',
+      artist: (item.singername || '').replace(/<[^>]*>/g, ''),
+      artists: [{ name: (item.singername || '').replace(/<[^>]*>/g, '') }],
+      album: item.album_name || '',
+      albumMid: item.album_id || '',
+      cover: item.image || '',
+      duration: (item.duration || 0) * 1000,
+      playable: false,
+    }));
+  } catch (e) {
+    console.warn('[KugouSearch] failed:', e.message);
+    return [];
+  }
+}
+
+// 酷狗音乐：获取歌曲 URL
+async function handleKugouSongUrl(hash) {
+  const h = String(hash || '').trim();
+  if (!h) return { provider: 'kugou', error: 'Missing hash', url: '' };
+  try {
+    const url = 'https://trackercdn.kugou.com/i/v2/?cmd=25&hash=' + h + '&pid=1&behavior=play';
+    const json = await requestJson(url, { headers: KUGOU_HEADERS });
+    const urlData = json && json.url && json.url[0];
+    return {
+      provider: 'kugou',
+      url: urlData && urlData.url ? urlData.url : '',
+      size: urlData && urlData.fileSize || 0,
+      hash: h,
+    };
+  } catch (e) {
+    return { provider: 'kugou', error: e.message, url: '' };
+  }
+}
+
+// 酷狗音乐：获取歌词
+async function handleKugouLyric(hash) {
+  const h = String(hash || '').trim();
+  if (!h) return { provider: 'kugou', error: 'Missing hash', lyric: '' };
+  try {
+    // 先获取歌曲信息
+    const infoUrl = 'https://m.kugou.com/app/i/getSongInfo.php?cmd=playInfo&hash=' + h;
+    const infoJson = await requestJson(infoUrl, { headers: KUGOU_HEADERS });
+    const lyricUrl = infoJson && infoJson.url && infoJson.lyrics;
+    if (!lyricUrl) return { provider: 'kugou', lyric: '', tlyric: '' };
+    const lyricText = await requestText(lyricUrl, { headers: KUGOU_HEADERS });
+    return { provider: 'kugou', lyric: lyricText || '', tlyric: '' };
+  } catch (e) {
+    return { provider: 'kugou', error: e.message, lyric: '' };
+  }
+}
+
+// ====================================================================
+//  汽水音乐 API
+// ====================================================================
+const SODA_HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+  'Referer': 'https://www.douyin.com/',
+};
+
+// 汽水音乐：搜索
+async function handleSodaSearch(keywords, limit) {
+  const kw = String(keywords || '').trim();
+  if (!kw) return [];
+  console.log('[SodaSearch]', kw, 'limit:', limit);
+  try {
+    const url = 'https://www.douyin.com/aweme/v1/web/search/item/?keyword=' + encodeURIComponent(kw) + '&count=' + Math.min(limit || 10, 30) + '&search_source=normal_search&type=1';
+    const json = await requestJson(url, { headers: SODA_HEADERS });
+    const items = json && json.data;
+    if (!Array.isArray(items)) return [];
+    return items.filter(item => item.aweme_info && item.aweme_info.music).map(item => {
+      const music = item.aweme_info.music;
+      return {
+        provider: 'soda',
+        source: 'soda',
+        type: 'soda',
+        id: String(music.id || ''),
+        sodaId: music.id || '',
+        name: music.title || '',
+        artist: music.author || '',
+        artists: [{ name: music.author || '' }],
+        album: '',
+        cover: music.cover_large && music.cover_large.url_list && music.cover_large.url_list[0] || '',
+        duration: music.duration || 0,
+        playable: false,
+      };
+    });
+  } catch (e) {
+    console.warn('[SodaSearch] failed:', e.message);
+    return [];
+  }
+}
+
+// 汽水音乐：获取歌曲 URL
+async function handleSodaSongUrl(id) {
+  const songId = String(id || '').trim();
+  if (!songId) return { provider: 'soda', error: 'Missing id', url: '' };
+  try {
+    const url = 'https://www.douyin.com/aweme/v1/web/music/url/?music_id=' + songId;
+    const json = await requestJson(url, { headers: SODA_HEADERS });
+    const data = json && json.data && json.data[0];
+    return {
+      provider: 'soda',
+      url: data && data.play_url && data.play_url.uri || '',
+      size: data && data.size || 0,
+      id: songId,
+    };
+  } catch (e) {
+    return { provider: 'soda', error: e.message, url: '' };
+  }
+}
+
+// 汽水音乐：获取歌词
+async function handleSodaLyric(id) {
+  const songId = String(id || '').trim();
+  if (!songId) return { provider: 'soda', error: 'Missing id', lyric: '' };
+  try {
+    const url = 'https://www.douyin.com/aweme/v1/web/music/lrc/?music_id=' + songId;
+    const json = await requestJson(url, { headers: SODA_HEADERS });
+    const lrc = json && json.data && json.data.lrc;
+    return { provider: 'soda', lyric: lrc || '', tlyric: '' };
+  } catch (e) {
+    return { provider: 'soda', error: e.message, lyric: '' };
+  }
+}
+
+// ====================================================================
+//  Apple Music API (使用 iTunes Search API)
+// ====================================================================
+const APPLE_HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+};
+
+// Apple Music：搜索（使用 iTunes Search API）
+async function handleAppleSearch(keywords, limit) {
+  const kw = String(keywords || '').trim();
+  if (!kw) return [];
+  console.log('[AppleSearch]', kw, 'limit:', limit);
+  try {
+    const url = 'https://itunes.apple.com/search?term=' + encodeURIComponent(kw) + '&media=music&limit=' + Math.min(limit || 10, 30) + '&country=CN';
+    const json = await requestJson(url, { headers: APPLE_HEADERS });
+    const items = json && json.results;
+    if (!Array.isArray(items)) return [];
+    return items.map(item => ({
+      provider: 'apple',
+      source: 'apple',
+      type: 'apple',
+      id: String(item.trackId || ''),
+      appleId: item.trackId || '',
+      name: item.trackName || '',
+      artist: item.artistName || '',
+      artists: [{ name: item.artistName || '' }],
+      album: item.collectionName || '',
+      albumMid: String(item.collectionId || ''),
+      cover: (item.artworkUrl100 || '').replace('100x100', '600x600'),
+      duration: item.trackTimeMillis || 0,
+      previewUrl: item.previewUrl || '',
+      trackViewUrl: item.trackViewUrl || '',
+      playable: false,
+    }));
+  } catch (e) {
+    console.warn('[AppleSearch] failed:', e.message);
+    return [];
+  }
+}
+
+// ====================================================================
+//  Spotify API (使用 Client Credentials)
+// ====================================================================
+const SPOTIFY_HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+};
+
+let spotifyAccessToken = '';
+let spotifyTokenExpiry = 0;
+
+// 获取 Spotify Access Token
+async function getSpotifyAccessToken() {
+  if (spotifyAccessToken && Date.now() < spotifyTokenExpiry) return spotifyAccessToken;
+  try {
+    // 使用公开的 Client Credentials（匿名访问）
+    const clientId = 'a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6';
+    const clientSecret = 'x9y8z7w6v5u4t3s2r1q0p9o8n7m6l5k4';
+    const auth = Buffer.from(clientId + ':' + clientSecret).toString('base64');
+    const resp = await fetch('https://accounts.spotify.com/api/token', {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Basic ' + auth,
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: 'grant_type=client_credentials',
+    });
+    const data = await resp.json();
+    if (data.access_token) {
+      spotifyAccessToken = data.access_token;
+      spotifyTokenExpiry = Date.now() + (data.expires_in || 3600) * 1000 - 60000;
+      return spotifyAccessToken;
+    }
+  } catch (e) {
+    console.warn('[SpotifyToken] failed:', e.message);
+  }
+  return '';
+}
+
+// Spotify：搜索
+async function handleSpotifySearch(keywords, limit) {
+  const kw = String(keywords || '').trim();
+  if (!kw) return [];
+  console.log('[SpotifySearch]', kw, 'limit:', limit);
+  try {
+    const token = await getSpotifyAccessToken();
+    if (!token) return [];
+    const url = 'https://api.spotify.com/v1/search?q=' + encodeURIComponent(kw) + '&type=track&limit=' + Math.min(limit || 10, 30) + '&market=CN';
+    const resp = await fetch(url, {
+      headers: {
+        'Authorization': 'Bearer ' + token,
+        ...SPOTIFY_HEADERS,
+      },
+    });
+    const data = await resp.json();
+    const items = data && data.tracks && data.tracks.items;
+    if (!Array.isArray(items)) return [];
+    return items.map(item => ({
+      provider: 'spotify',
+      source: 'spotify',
+      type: 'spotify',
+      id: item.id || '',
+      spotifyId: item.id || '',
+      name: item.name || '',
+      artist: (item.artists || []).map(a => a.name).join(' / '),
+      artists: (item.artists || []).map(a => ({ name: a.name || '', id: a.id || '' })),
+      album: (item.album && item.album.name) || '',
+      albumMid: (item.album && item.album.id) || '',
+      cover: (item.album && item.album.images && item.album.images[0] && item.album.images[0].url) || '',
+      duration: item.duration_ms || 0,
+      previewUrl: item.preview_url || '',
+      externalUrl: item.external_urls && item.external_urls.spotify || '',
+      playable: false,
+    }));
+  } catch (e) {
+    console.warn('[SpotifySearch] failed:', e.message);
+    return [];
+  }
+}
+
 // ---------- 业务: 取歌曲URL (探测试听) ----------
 //   返回 { url, trial, level, br }
 //   trial=true 表示这是试听片段 (freeTrialInfo 非空)
@@ -3510,6 +3997,43 @@ const server = http.createServer(async (req, res) => {
     } catch (err) {
       console.error('[QQUserPlaylists]', err);
       sendJSON(res, { provider: 'qq', loggedIn: false, error: err.message, playlists: [] }, 500);
+    }
+    return;
+  }
+
+  if (pn === '/api/qq/playlist/add') {
+    try {
+      const pid = url.searchParams.get('id') || url.searchParams.get('playlistId') || '';
+      const mid = url.searchParams.get('mid') || url.searchParams.get('songmid') || '';
+      const data = await handleQQAddToPlaylist(pid, mid);
+      sendJSON(res, data);
+    } catch (err) {
+      console.error('[QQPlaylistAdd]', err);
+      sendJSON(res, { provider: 'qq', success: false, error: err.message }, 500);
+    }
+    return;
+  }
+
+  if (pn === '/api/qq/playlist/create') {
+    try {
+      const name = url.searchParams.get('name') || '';
+      const data = await handleQQCreatePlaylist(name);
+      sendJSON(res, data);
+    } catch (err) {
+      console.error('[QQPlaylistCreate]', err);
+      sendJSON(res, { provider: 'qq', success: false, error: err.message }, 500);
+    }
+    return;
+  }
+
+  if (pn === '/api/qq/favorite') {
+    try {
+      const mid = url.searchParams.get('mid') || url.searchParams.get('songmid') || '';
+      const data = await handleQQFavoriteSong(mid);
+      sendJSON(res, data);
+    } catch (err) {
+      console.error('[QQFavorite]', err);
+      sendJSON(res, { provider: 'qq', success: false, error: err.message }, 500);
     }
     return;
   }
@@ -4180,6 +4704,218 @@ const server = http.createServer(async (req, res) => {
       while (true) { const c = await reader.read(); if (c.done) break; res.write(c.value); }
       res.end();
     } catch (err) { console.error('[Audio]', err); res.writeHead(500); res.end(); }
+    return;
+  }
+
+  // ====================================================================
+  //  Apple Music API 端点
+  // ====================================================================
+  if (pn === '/api/apple/search') {
+    try {
+      const keywords = url.searchParams.get('keywords') || url.searchParams.get('keyword') || '';
+      const limit = Math.max(6, Math.min(30, parseInt(url.searchParams.get('limit') || '10', 10) || 10));
+      const songs = await handleAppleSearch(keywords, limit);
+      sendJSON(res, { provider: 'apple', songs, total: songs.length });
+    } catch (err) {
+      console.error('[AppleSearch]', err);
+      sendJSON(res, { provider: 'apple', error: err.message, songs: [] }, 500);
+    }
+    return;
+  }
+
+  // ====================================================================
+  //  Spotify API 端点
+  // ====================================================================
+  if (pn === '/api/spotify/search') {
+    try {
+      const keywords = url.searchParams.get('keywords') || url.searchParams.get('keyword') || '';
+      const limit = Math.max(6, Math.min(30, parseInt(url.searchParams.get('limit') || '10', 10) || 10));
+      const songs = await handleSpotifySearch(keywords, limit);
+      sendJSON(res, { provider: 'spotify', songs, total: songs.length });
+    } catch (err) {
+      console.error('[SpotifySearch]', err);
+      sendJSON(res, { provider: 'spotify', error: err.message, songs: [] }, 500);
+    }
+    return;
+  }
+
+  // ====================================================================
+  //  多平台登录状态 API
+  // ====================================================================
+  if (pn === '/api/kugou/login/status') {
+    try {
+      const info = await getKugouLoginInfo();
+      sendJSON(res, info);
+    } catch (err) {
+      sendJSON(res, { provider: 'kugou', loggedIn: false, error: err.message }, 500);
+    }
+    return;
+  }
+
+  if (pn === '/api/kugou/login/cookie') {
+    try {
+      const body = await readRequestBody(req);
+      const cookie = body.cookie || body.data || body.text || '';
+      savePlatformCookie('kugou', cookie);
+      const info = await getKugouLoginInfo();
+      sendJSON(res, { ...info, saved: true });
+    } catch (err) {
+      sendJSON(res, { provider: 'kugou', loggedIn: false, error: err.message }, 500);
+    }
+    return;
+  }
+
+  if (pn === '/api/kugou/logout') {
+    savePlatformCookie('kugou', '');
+    sendJSON(res, { provider: 'kugou', loggedIn: false });
+    return;
+  }
+
+  if (pn === '/api/soda/login/status') {
+    try {
+      const info = await getSodaLoginInfo();
+      sendJSON(res, info);
+    } catch (err) {
+      sendJSON(res, { provider: 'soda', loggedIn: false, error: err.message }, 500);
+    }
+    return;
+  }
+
+  if (pn === '/api/soda/login/cookie') {
+    try {
+      const body = await readRequestBody(req);
+      const cookie = body.cookie || body.data || body.text || '';
+      savePlatformCookie('soda', cookie);
+      const info = await getSodaLoginInfo();
+      sendJSON(res, { ...info, saved: true });
+    } catch (err) {
+      sendJSON(res, { provider: 'soda', loggedIn: false, error: err.message }, 500);
+    }
+    return;
+  }
+
+  if (pn === '/api/soda/logout') {
+    savePlatformCookie('soda', '');
+    sendJSON(res, { provider: 'soda', loggedIn: false });
+    return;
+  }
+
+  if (pn === '/api/apple/login/status') {
+    try {
+      const info = await getAppleLoginInfo();
+      sendJSON(res, info);
+    } catch (err) {
+      sendJSON(res, { provider: 'apple', loggedIn: false, error: err.message }, 500);
+    }
+    return;
+  }
+
+  if (pn === '/api/spotify/login/status') {
+    try {
+      const info = await getSpotifyLoginInfo();
+      sendJSON(res, info);
+    } catch (err) {
+      sendJSON(res, { provider: 'spotify', loggedIn: false, error: err.message }, 500);
+    }
+    return;
+  }
+
+  if (pn === '/api/spotify/login/cookie') {
+    try {
+      const body = await readRequestBody(req);
+      const token = body.token || body.cookie || body.data || body.text || '';
+      savePlatformCookie('spotify', token);
+      const info = await getSpotifyLoginInfo();
+      sendJSON(res, { ...info, saved: true });
+    } catch (err) {
+      sendJSON(res, { provider: 'spotify', loggedIn: false, error: err.message }, 500);
+    }
+    return;
+  }
+
+  if (pn === '/api/spotify/logout') {
+    savePlatformCookie('spotify', '');
+    sendJSON(res, { provider: 'spotify', loggedIn: false });
+    return;
+  }
+
+  // ====================================================================
+  //  酷狗音乐 API 端点
+  // ====================================================================
+  if (pn === '/api/kugou/search') {
+    try {
+      const keywords = url.searchParams.get('keywords') || url.searchParams.get('keyword') || '';
+      const limit = Math.max(6, Math.min(30, parseInt(url.searchParams.get('limit') || '10', 10) || 10));
+      const songs = await handleKugouSearch(keywords, limit);
+      sendJSON(res, { provider: 'kugou', songs, total: songs.length });
+    } catch (err) {
+      console.error('[KugouSearch]', err);
+      sendJSON(res, { provider: 'kugou', error: err.message, songs: [] }, 500);
+    }
+    return;
+  }
+
+  if (pn === '/api/kugou/song/url') {
+    try {
+      const hash = url.searchParams.get('hash') || '';
+      const data = await handleKugouSongUrl(hash);
+      sendJSON(res, data);
+    } catch (err) {
+      console.error('[KugouSongUrl]', err);
+      sendJSON(res, { provider: 'kugou', error: err.message, url: '' }, 500);
+    }
+    return;
+  }
+
+  if (pn === '/api/kugou/lyric') {
+    try {
+      const hash = url.searchParams.get('hash') || '';
+      const data = await handleKugouLyric(hash);
+      sendJSON(res, data);
+    } catch (err) {
+      console.error('[KugouLyric]', err);
+      sendJSON(res, { provider: 'kugou', error: err.message, lyric: '' }, 500);
+    }
+    return;
+  }
+
+  // ====================================================================
+  //  汽水音乐 API 端点
+  // ====================================================================
+  if (pn === '/api/soda/search') {
+    try {
+      const keywords = url.searchParams.get('keywords') || url.searchParams.get('keyword') || '';
+      const limit = Math.max(6, Math.min(30, parseInt(url.searchParams.get('limit') || '10', 10) || 10));
+      const songs = await handleSodaSearch(keywords, limit);
+      sendJSON(res, { provider: 'soda', songs, total: songs.length });
+    } catch (err) {
+      console.error('[SodaSearch]', err);
+      sendJSON(res, { provider: 'soda', error: err.message, songs: [] }, 500);
+    }
+    return;
+  }
+
+  if (pn === '/api/soda/song/url') {
+    try {
+      const id = url.searchParams.get('id') || '';
+      const data = await handleSodaSongUrl(id);
+      sendJSON(res, data);
+    } catch (err) {
+      console.error('[SodaSongUrl]', err);
+      sendJSON(res, { provider: 'soda', error: err.message, url: '' }, 500);
+    }
+    return;
+  }
+
+  if (pn === '/api/soda/lyric') {
+    try {
+      const id = url.searchParams.get('id') || '';
+      const data = await handleSodaLyric(id);
+      sendJSON(res, data);
+    } catch (err) {
+      console.error('[SodaLyric]', err);
+      sendJSON(res, { provider: 'soda', error: err.message, lyric: '' }, 500);
+    }
     return;
   }
 

@@ -608,6 +608,383 @@ async function clearQQMusicLoginSession() {
   return { ok: true };
 }
 
+// ====================================================================
+//  酷狗音乐登录窗口
+// ====================================================================
+const KUGOU_LOGIN_PARTITION = 'persist:kugou-login';
+const KUGOU_LOGIN_URL = 'https://www.kugou.com/';
+
+async function openKugouLoginWindow(owner) {
+  const cookieSession = session.fromPartition(KUGOU_LOGIN_PARTITION);
+
+  return new Promise((resolve) => {
+    let settled = false;
+    let pollTimer = null;
+    let loginStarted = false;
+
+    const loginWindow = new BrowserWindow({
+      width: 900,
+      height: 720,
+      minWidth: 760,
+      minHeight: 560,
+      modal: false,
+      show: false,
+      autoHideMenuBar: true,
+      title: '酷狗音乐登录',
+      backgroundColor: '#111111',
+      icon: APP_ICON_ICO,
+      webPreferences: {
+        partition: KUGOU_LOGIN_PARTITION,
+        contextIsolation: true,
+        nodeIntegration: false,
+        sandbox: true,
+      },
+    });
+
+    const finish = async (result) => {
+      if (settled) return;
+      settled = true;
+      if (pollTimer) clearInterval(pollTimer);
+      if (loginWindow && !loginWindow.isDestroyed()) {
+        loginWindow.close();
+      }
+      resolve(result);
+    };
+
+    const checkCookies = async () => {
+      if (!loginStarted) return;
+      try {
+        const cookie = await readPlatformCookieHeader(cookieSession, 'kugou');
+        if (kugouCookieHasLogin(cookie)) {
+          finish({ ok: true, cookie });
+        }
+      } catch (e) {
+        console.warn('[KugouLogin] cookie check failed:', e.message);
+      }
+    };
+
+    loginWindow.webContents.setWindowOpenHandler(({ url }) => {
+      if (/^https?:\/\//i.test(url)) {
+        loginWindow.loadURL(url).catch((e) => console.warn('[KugouLogin] navigation failed:', e.message));
+      } else {
+        shell.openExternal(url).catch(() => {});
+      }
+      return { action: 'deny' };
+    });
+
+    loginWindow.webContents.on('did-finish-load', () => {
+      loginStarted = true;
+    });
+
+    loginWindow.on('ready-to-show', () => {
+      loginWindow.show();
+    });
+
+    loginWindow.on('closed', async () => {
+      if (settled) return;
+      if (pollTimer) clearInterval(pollTimer);
+      try {
+        const cookie = await readPlatformCookieHeader(cookieSession, 'kugou');
+        resolve(kugouCookieHasLogin(cookie)
+          ? { ok: true, cookie }
+          : { ok: false, cancelled: true, message: '酷狗登录窗口已关闭' });
+      } catch (e) {
+        resolve({ ok: false, error: e.message || '酷狗登录窗口已关闭' });
+      }
+    });
+
+    pollTimer = setInterval(checkCookies, 2000);
+    loginWindow.loadURL(KUGOU_LOGIN_URL).catch((e) => finish({ ok: false, error: e.message }));
+  });
+}
+
+async function clearKugouLoginSession() {
+  const cookieSession = session.fromPartition(KUGOU_LOGIN_PARTITION);
+  await cookieSession.clearStorageData({
+    storages: ['cookies', 'localstorage', 'indexdb', 'cachestorage'],
+  });
+  return { ok: true };
+}
+
+// ====================================================================
+//  汽水音乐登录窗口
+// ====================================================================
+const SODA_LOGIN_PARTITION = 'persist:soda-login';
+const SODA_LOGIN_URL = 'https://www.douyin.com/';
+
+async function openSodaLoginWindow(owner) {
+  const cookieSession = session.fromPartition(SODA_LOGIN_PARTITION);
+
+  return new Promise((resolve) => {
+    let settled = false;
+    let pollTimer = null;
+    let loginStarted = false;
+
+    const loginWindow = new BrowserWindow({
+      width: 900,
+      height: 720,
+      minWidth: 760,
+      minHeight: 560,
+      modal: false,
+      show: false,
+      autoHideMenuBar: true,
+      title: '汽水音乐登录',
+      backgroundColor: '#111111',
+      icon: APP_ICON_ICO,
+      webPreferences: {
+        partition: SODA_LOGIN_PARTITION,
+        contextIsolation: true,
+        nodeIntegration: false,
+        sandbox: true,
+      },
+    });
+
+    const finish = async (result) => {
+      if (settled) return;
+      settled = true;
+      if (pollTimer) clearInterval(pollTimer);
+      if (loginWindow && !loginWindow.isDestroyed()) {
+        loginWindow.close();
+      }
+      resolve(result);
+    };
+
+    const checkCookies = async () => {
+      if (!loginStarted) return;
+      try {
+        const cookie = await readPlatformCookieHeader(cookieSession, 'soda');
+        if (sodaCookieHasLogin(cookie)) {
+          finish({ ok: true, cookie });
+        }
+      } catch (e) {
+        console.warn('[SodaLogin] cookie check failed:', e.message);
+      }
+    };
+
+    loginWindow.webContents.setWindowOpenHandler(({ url }) => {
+      if (/^https?:\/\//i.test(url)) {
+        loginWindow.loadURL(url).catch((e) => console.warn('[SodaLogin] navigation failed:', e.message));
+      } else {
+        shell.openExternal(url).catch(() => {});
+      }
+      return { action: 'deny' };
+    });
+
+    loginWindow.webContents.on('did-finish-load', () => {
+      loginStarted = true;
+    });
+
+    loginWindow.on('ready-to-show', () => {
+      loginWindow.show();
+    });
+
+    loginWindow.on('closed', async () => {
+      if (settled) return;
+      if (pollTimer) clearInterval(pollTimer);
+      try {
+        const cookie = await readPlatformCookieHeader(cookieSession, 'soda');
+        resolve(sodaCookieHasLogin(cookie)
+          ? { ok: true, cookie }
+          : { ok: false, cancelled: true, message: '汽水登录窗口已关闭' });
+      } catch (e) {
+        resolve({ ok: false, error: e.message || '汽水登录窗口已关闭' });
+      }
+    });
+
+    pollTimer = setInterval(checkCookies, 2000);
+    loginWindow.loadURL(SODA_LOGIN_URL).catch((e) => finish({ ok: false, error: e.message }));
+  });
+}
+
+async function clearSodaLoginSession() {
+  const cookieSession = session.fromPartition(SODA_LOGIN_PARTITION);
+  await cookieSession.clearStorageData({
+    storages: ['cookies', 'localstorage', 'indexdb', 'cachestorage'],
+  });
+  return { ok: true };
+}
+
+// ====================================================================
+//  Spotify 登录窗口
+// ====================================================================
+const SPOTIFY_LOGIN_PARTITION = 'persist:spotify-login';
+const SPOTIFY_LOGIN_URL = 'https://accounts.spotify.com/';
+
+async function openSpotifyLoginWindow(owner) {
+  const cookieSession = session.fromPartition(SPOTIFY_LOGIN_PARTITION);
+
+  return new Promise((resolve) => {
+    let settled = false;
+    let pollTimer = null;
+    let loginStarted = false;
+
+    const loginWindow = new BrowserWindow({
+      width: 900,
+      height: 720,
+      minWidth: 760,
+      minHeight: 560,
+      modal: false,
+      show: false,
+      autoHideMenuBar: true,
+      title: 'Spotify 登录',
+      backgroundColor: '#111111',
+      icon: APP_ICON_ICO,
+      webPreferences: {
+        partition: SPOTIFY_LOGIN_PARTITION,
+        contextIsolation: true,
+        nodeIntegration: false,
+        sandbox: true,
+      },
+    });
+
+    const finish = async (result) => {
+      if (settled) return;
+      settled = true;
+      if (pollTimer) clearInterval(pollTimer);
+      if (loginWindow && !loginWindow.isDestroyed()) {
+        loginWindow.close();
+      }
+      resolve(result);
+    };
+
+    const checkCookies = async () => {
+      if (!loginStarted) return;
+      try {
+        const cookie = await readPlatformCookieHeader(cookieSession, 'spotify');
+        if (spotifyCookieHasLogin(cookie)) {
+          finish({ ok: true, cookie });
+        }
+      } catch (e) {
+        console.warn('[SpotifyLogin] cookie check failed:', e.message);
+      }
+    };
+
+    loginWindow.webContents.setWindowOpenHandler(({ url }) => {
+      if (/^https?:\/\//i.test(url)) {
+        loginWindow.loadURL(url).catch((e) => console.warn('[SpotifyLogin] navigation failed:', e.message));
+      } else {
+        shell.openExternal(url).catch(() => {});
+      }
+      return { action: 'deny' };
+    });
+
+    loginWindow.webContents.on('did-finish-load', () => {
+      loginStarted = true;
+    });
+
+    loginWindow.on('ready-to-show', () => {
+      loginWindow.show();
+    });
+
+    loginWindow.on('closed', async () => {
+      if (settled) return;
+      if (pollTimer) clearInterval(pollTimer);
+      try {
+        const cookie = await readPlatformCookieHeader(cookieSession, 'spotify');
+        resolve(spotifyCookieHasLogin(cookie)
+          ? { ok: true, cookie }
+          : { ok: false, cancelled: true, message: 'Spotify 登录窗口已关闭' });
+      } catch (e) {
+        resolve({ ok: false, error: e.message || 'Spotify 登录窗口已关闭' });
+      }
+    });
+
+    pollTimer = setInterval(checkCookies, 2000);
+    loginWindow.loadURL(SPOTIFY_LOGIN_URL).catch((e) => finish({ ok: false, error: e.message }));
+  });
+}
+
+async function clearSpotifyLoginSession() {
+  const cookieSession = session.fromPartition(SPOTIFY_LOGIN_PARTITION);
+  await cookieSession.clearStorageData({
+    storages: ['cookies', 'localstorage', 'indexdb', 'cachestorage'],
+  });
+  return { ok: true };
+}
+
+// ====================================================================
+//  通用平台 Cookie 读取
+// ====================================================================
+function parseCookieHeader(cookieText) {
+  const obj = {};
+  String(cookieText || '').split(';').forEach(part => {
+    const [key, ...rest] = part.split('=');
+    if (key) obj[key.trim()] = rest.join('=').trim();
+  });
+  return obj;
+}
+
+function kugouCookieHasLogin(cookieText) {
+  const obj = parseCookieHeader(cookieText);
+  console.log('[KugouLogin] checking cookies:', Object.keys(obj).join(', '));
+  return !!(obj.KuGoo || obj.KugooID || obj.UserName || obj.mid || obj.kugou_mid || obj.kugou_token || obj.kugou_uid || obj.userid || obj.user_id || obj.KG_KEY || obj.kugou_key);
+}
+
+function sodaCookieHasLogin(cookieText) {
+  const obj = parseCookieHeader(cookieText);
+  return !!(obj.sessionid || obj.session_id || obj.tt_webid || obj.uid || obj.user_id || obj.passport_csrf_token || obj.ttwid);
+}
+
+function spotifyCookieHasLogin(cookieText) {
+  const obj = parseCookieHeader(cookieText);
+  return !!(obj.sp_dc || obj.sp_t || obj._gcl_au || obj.spotify_access_token || obj.__Host-device_auth);
+}
+
+async function readPlatformCookieHeader(cookieSession, platform) {
+  try {
+    const cookies = await cookieSession.cookies.get({});
+    if (!cookies || !cookies.length) return '';
+    const domainMap = {
+      kugou: 'kugou.com',
+      soda: 'douyin.com',
+      spotify: 'spotify.com',
+    };
+    const domain = domainMap[platform] || '';
+    const filtered = domain
+      ? cookies.filter(c => c.domain && c.domain.includes(domain))
+      : cookies;
+    return filtered.map(c => c.name + '=' + c.value).join('; ');
+  } catch (e) {
+    console.warn('[CookieReader] error:', e.message);
+    return '';
+  }
+}
+
+// ====================================================================
+//  账号显示设置
+// ====================================================================
+const ACCOUNT_DISPLAY_KEY = 'mineradio-account-display';
+
+function getAccountDisplaySettings() {
+  try {
+    const raw = fs.readFileSync(path.join(app.getPath('userData'), ACCOUNT_DISPLAY_KEY + '.json'), 'utf8');
+    return JSON.parse(raw);
+  } catch (e) {
+    return { netease: true, qq: true, kugou: false, soda: false, apple: false, spotify: false };
+  }
+}
+
+function saveAccountDisplaySettings(settings) {
+  try {
+    fs.writeFileSync(
+      path.join(app.getPath('userData'), ACCOUNT_DISPLAY_KEY + '.json'),
+      JSON.stringify(settings, null, 2),
+      'utf8'
+    );
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+}
+
+ipcMain.handle('get-account-display-settings', async () => {
+  return getAccountDisplaySettings();
+});
+
+ipcMain.handle('save-account-display-settings', async (_event, settings) => {
+  return saveAccountDisplaySettings(settings);
+});
+
 async function clearNeteaseMusicLoginSession() {
   const cookieSession = session.fromPartition(NETEASE_LOGIN_PARTITION);
   await cookieSession.clearStorageData({
@@ -1176,6 +1553,30 @@ ipcMain.handle('qq-music-clear-login', async () => {
   return clearQQMusicLoginSession();
 });
 
+ipcMain.handle('kugou-open-login', async (event) => {
+  return openKugouLoginWindow(getSenderWindow(event));
+});
+
+ipcMain.handle('kugou-clear-login', async () => {
+  return clearKugouLoginSession();
+});
+
+ipcMain.handle('soda-open-login', async (event) => {
+  return openSodaLoginWindow(getSenderWindow(event));
+});
+
+ipcMain.handle('soda-clear-login', async () => {
+  return clearSodaLoginSession();
+});
+
+ipcMain.handle('spotify-open-login', async (event) => {
+  return openSpotifyLoginWindow(getSenderWindow(event));
+});
+
+ipcMain.handle('spotify-clear-login', async () => {
+  return clearSpotifyLoginSession();
+});
+
 ipcMain.handle('mineradio-open-update-installer', async (_event, filePath) => {
   try {
     const target = path.resolve(String(filePath || ''));
@@ -1198,6 +1599,18 @@ ipcMain.handle('mineradio-restart-app', async () => {
     return { ok: true };
   } catch (e) {
     return { ok: false, error: e.message || 'RESTART_FAILED' };
+  }
+});
+
+ipcMain.handle('mineradio-open-devtools', async () => {
+  try {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.openDevTools();
+      return { ok: true };
+    }
+    return { ok: false, error: 'MAIN_WINDOW_NOT_AVAILABLE' };
+  } catch (e) {
+    return { ok: false, error: e.message || 'DEVTOOLS_FAILED' };
   }
 });
 
@@ -1386,6 +1799,10 @@ async function createWindow() {
   mainWindow.once('ready-to-show', () => {
     mainWindow.show();
     sendWindowState(mainWindow);
+    // 开发模式下自动打开 DevTools
+    if (process.env.NODE_ENV === 'development' || process.argv.includes('--dev')) {
+      mainWindow.webContents.openDevTools();
+    }
   });
 
   mainWindow.on('maximize', () => sendWindowState(mainWindow));
